@@ -1,11 +1,52 @@
 #include "sess.h"
 #include "encoding.h"
 #include <iostream>
+#include "ikcp.h"
+
+#ifdef _WIN32
+#include <WinSock2.h>
+#include <ws2tcpip.h>
+#include <windows.h>
+#pragma comment(lib, "ws2_32.lib")
+void usleep(int64_t t) {
+    return ::Sleep(t/1000);
+}
+struct WSAInit {
+    WSAInit() {
+        WSAData data;
+        WSAStartup(MAKEWORD(2, 2), &data);
+    }
+    ~WSAInit() {
+        WSACleanup();
+    }
+}gInit;
+#else
 #include <sys/socket.h>
 #include <sys/fcntl.h>
 #include <arpa/inet.h>
 #include <unistd.h>
+#include <sys/time.h>
+#define closesocket close
+#endif
 #include <cstring>
+
+uint32_t currentMs()
+{
+#ifdef _WIN32
+#define EPOCHFILETIME   (116444736000000000UL)
+    FILETIME ft;
+    LARGE_INTEGER li;
+    GetSystemTimeAsFileTime(&ft);
+    li.LowPart = ft.dwLowDateTime;
+    li.HighPart = ft.dwHighDateTime;
+    return (li.QuadPart - EPOCHFILETIME) / 10 / 1000;
+#else
+    timeval tv;
+    gettimeofday(&tv, 0);
+    return (uint32_t)(tv.tv_sec * 1000 + tv.tv_usec/1000);
+#endif // _WIN32
+    return 0;
+}
 
 UDPSession *
 UDPSession::Dial(const char *ip, uint16_t port) {
@@ -27,7 +68,7 @@ UDPSession::Dial(const char *ip, uint16_t port) {
         return nullptr;
     }
     if (connect(sockfd, (struct sockaddr *) &saddr, sizeof(struct sockaddr)) < 0) {
-        close(sockfd);
+        closesocket(sockfd);
         return nullptr;
     }
 
@@ -66,7 +107,7 @@ UDPSession::dialIPv6(const char *ip, uint16_t port) {
         return nullptr;
     }
     if (connect(sockfd, (struct sockaddr *) &saddr, sizeof(struct sockaddr_in6)) < 0) {
-        close(sockfd);
+        closesocket(sockfd);
         return nullptr;
     }
 
@@ -75,6 +116,12 @@ UDPSession::dialIPv6(const char *ip, uint16_t port) {
 
 UDPSession *
 UDPSession::createSession(int sockfd) {
+#ifdef _WIN32
+    u_long mode = 1;
+    if (ioctlsocket(sockfd, FIONBIO, &mode) == -1) {
+        return nullptr;
+    }
+#else
     int flags = fcntl(sockfd, F_GETFL, 0);
     if (flags < 0) {
         return nullptr;
@@ -83,6 +130,7 @@ UDPSession::createSession(int sockfd) {
     if (fcntl(sockfd, F_SETFL, flags | O_NONBLOCK) < 0) {
         return nullptr;
     }
+#endif
 
     UDPSession *sess = new(UDPSession);
     sess->m_sockfd = sockfd;
@@ -95,7 +143,7 @@ UDPSession::createSession(int sockfd) {
 void
 UDPSession::Update(uint32_t current) noexcept {
     for (;;) {
-        ssize_t n = recv(m_sockfd, m_buf, sizeof(m_buf), 0);
+        int n = recv(m_sockfd, (char*)m_buf, sizeof(m_buf), 0);
         if (n > 0) {
             if (fec.isEnabled()) {
                 // decode FEC packet
@@ -143,12 +191,12 @@ UDPSession::Update(uint32_t current) noexcept {
 void
 UDPSession::Destroy(UDPSession *sess) {
     if (nullptr == sess) return;
-    if (0 != sess->m_sockfd) { close(sess->m_sockfd); }
+    if (0 != sess->m_sockfd) { closesocket(sess->m_sockfd); }
     if (nullptr != sess->m_kcp) { ikcp_release(sess->m_kcp); }
     delete sess;
 }
 
-ssize_t
+int
 UDPSession::Read(char *buf, size_t sz) noexcept {
     if (m_streambufsiz > 0) {
         size_t n = m_streambufsiz;
@@ -170,7 +218,7 @@ UDPSession::Read(char *buf, size_t sz) noexcept {
     }
 
     if (psz <= sz) {
-        return (ssize_t) ikcp_recv(m_kcp, buf, int(sz));
+        return ikcp_recv(m_kcp, buf, int(sz));
     } else {
         ikcp_recv(m_kcp, (char *) m_streambuf, sizeof(m_streambuf));
         memcpy(buf, m_streambuf, sz);
@@ -180,7 +228,7 @@ UDPSession::Read(char *buf, size_t sz) noexcept {
     }
 }
 
-ssize_t
+int
 UDPSession::Write(const char *buf, size_t sz) noexcept {
     int n = ikcp_send(m_kcp, const_cast<char *>(buf), int(sz));
     if (n == 0) {
@@ -191,7 +239,7 @@ UDPSession::Write(const char *buf, size_t sz) noexcept {
 int
 UDPSession::SetDSCP(int iptos) noexcept {
     iptos = (iptos << 2) & 0xFF;
-    return setsockopt(this->m_sockfd, IPPROTO_IP, IP_TOS, &iptos, sizeof(iptos));
+    return setsockopt(this->m_sockfd, IPPROTO_IP, IP_TOS, (char*)&iptos, sizeof(iptos));
 }
 
 void
@@ -201,6 +249,21 @@ UDPSession::SetStreamMode(bool enable) noexcept {
     } else {
         this->m_kcp->stream = 0;
     }
+}
+
+int UDPSession::NoDelay(int nodelay, int interval, int resend, int nc)
+{
+    return ikcp_nodelay(m_kcp, nodelay, interval, resend, nc);
+}
+
+int UDPSession::WndSize(int sndwnd, int rcvwnd)
+{
+    return ikcp_wndsize(m_kcp, sndwnd, rcvwnd);
+}
+
+int UDPSession::SetMtu(int mtu)
+{
+    return ikcp_setmtu(m_kcp, mtu);
 }
 
 int
@@ -243,8 +306,7 @@ UDPSession::out_wrapper(const char *buf, int len, struct IKCPCB *, void *user) {
     return 0;
 }
 
-ssize_t
+int
 UDPSession::output(const void *buffer, size_t length) {
-    ssize_t n = send(m_sockfd, buffer, length, 0);
-    return n;
+    return send(m_sockfd, (char*)buffer, length, 0);
 }

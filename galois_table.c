@@ -18,7 +18,7 @@ const int fieldSize = 256;
 const int generatingPolynomial = 29;
 
 
-byte logTable[fieldSize] = {
+byte logTable[] = {
         0, 0, 1, 25, 2, 50, 26, 198,
         3, 223, 51, 238, 27, 104, 199, 75,
         4, 100, 224, 14, 52, 141, 239, 129,

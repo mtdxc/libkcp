@@ -6,6 +6,15 @@
 #define KCP_GALOIS_H
 
 typedef unsigned char byte;
+#ifdef __cplusplus
+extern "C" {
+#endif
+    extern byte mulTable[256][256];
+    extern byte logTable[];
+    extern byte expTable[];
+#ifdef __cplusplus
+}
+#endif
 
 byte galAdd(byte a, byte b);
 

@@ -4,8 +4,6 @@
 
 #include "galois_noasm.h"
 
-extern const byte mulTable[256][256];
-
 void galMulSlice(byte c, byte* in, byte* out, int size) {
     for (int n=0;n<size;n++) {
         out[n] = mulTable[c][in[n]];
