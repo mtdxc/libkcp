@@ -78,9 +78,9 @@ ReedSolomon::codeSomeShards(std::vector<row_type> &matrixRows, std::vector<row_t
         auto in = inputs[c];
         for (int iRow = 0; iRow < outputCount; iRow++) {
             if (c == 0) {
-                galMulSlice((*matrixRows[iRow])[c], in, outputs[iRow]);
+                galMulSlice((*matrixRows[iRow])[c], in->data(), outputs[iRow]->data(), in->size());
             } else {
-                galMulSliceXor((*matrixRows[iRow])[c], in, outputs[iRow]);
+                galMulSliceXor((*matrixRows[iRow])[c], in->data(), outputs[iRow]->data(), in->size());
             }
         }
     }
