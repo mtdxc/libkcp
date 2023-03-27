@@ -27,6 +27,7 @@ func server() {
 		go handle_client(s)
 	}
 }
+
 func handle_client(conn *kcp.UDPSession) {
 	conn.SetWindowSize(1024, 1024)
 	conn.SetNoDelay(1, 20, 2, 1)

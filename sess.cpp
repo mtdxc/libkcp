@@ -116,6 +116,7 @@ UDPSession::dialIPv6(const char *ip, uint16_t port) {
 
 UDPSession *
 UDPSession::createSession(int sockfd) {
+    // set unblock
 #ifdef _WIN32
     u_long mode = 1;
     if (ioctlsocket(sockfd, FIONBIO, &mode) == -1) {
@@ -132,7 +133,7 @@ UDPSession::createSession(int sockfd) {
     }
 #endif
 
-    UDPSession *sess = new(UDPSession);
+    UDPSession *sess = new UDPSession;
     sess->m_sockfd = sockfd;
     sess->m_kcp = ikcp_create(IUINT32(rand()), sess);
     sess->m_kcp->output = sess->out_wrapper;
@@ -274,15 +275,13 @@ UDPSession::out_wrapper(const char *buf, int len, struct IKCPCB *, void *user) {
     if (sess->fec.isEnabled()) {    // append FEC header
         // extend to len + fecHeaderSizePlus2
         // i.e. 4B seqid + 2B flag + 2B size
-        memcpy(sess->m_buf + fecHeaderSizePlus2, buf, static_cast<size_t>(len));
-        sess->fec.MarkData(sess->m_buf, static_cast<uint16_t>(len));
-        sess->output(sess->m_buf, len + fecHeaderSizePlus2);
+        auto p = sess->fec.MarkData(sess->m_buf, static_cast<uint16_t>(len));
+        memcpy(p, buf, static_cast<size_t>(len)); p += len;
+        sess->output(sess->m_buf, p - sess->m_buf);
 
         // FEC calculation
         // copy "2B size + data" to shards
-        auto slen = len + 2;
-        sess->shards[sess->pkt_idx] =
-                std::make_shared<std::vector<byte>>(&sess->m_buf[fecHeaderSize], &sess->m_buf[fecHeaderSize + slen]);
+        sess->shards[sess->pkt_idx] = std::make_shared<std::vector<byte>>(&sess->m_buf[fecHeaderSize], p);
 
         // count number of data shards
         sess->pkt_idx++;
@@ -292,9 +291,10 @@ UDPSession::out_wrapper(const char *buf, int len, struct IKCPCB *, void *user) {
             for (size_t i = sess->dataShards; i < sess->dataShards + sess->parityShards; i++) {
                 // append header to parity shards
                 // i.e. fecHeaderSize + data(2B size included)
-                memcpy(sess->m_buf + fecHeaderSize, sess->shards[i]->data(), sess->shards[i]->size());
-                sess->fec.MarkFEC(sess->m_buf);
-                sess->output(sess->m_buf, sess->shards[i]->size() + fecHeaderSize);
+                p = sess->fec.MarkFEC(sess->m_buf);
+                memcpy(p, sess->shards[i]->data(), sess->shards[i]->size()); 
+                p += sess->shards[i]->size();
+                sess->output(sess->m_buf, p - sess->m_buf);
             }
 
             // reset indexing

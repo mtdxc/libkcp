@@ -9,7 +9,9 @@ class UDPSession  {
 private:
     int m_sockfd{0};
     ikcpcb *m_kcp{nullptr};
+    // write»º³åÇø
     byte m_buf[2048];
+    // ¶ÁÈ¡»º³åÇø
     byte m_streambuf[65535];
     size_t m_streambufsiz{0};
 

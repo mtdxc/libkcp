@@ -1,4 +1,4 @@
-//
+﻿//
 // Created by 理 傅 on 2017/1/2.
 //
 
@@ -43,11 +43,12 @@ public:
     // Decode a raw array into fecPacket
     static fecPacket Decode(byte *data, size_t sz);
 
-    // Mark raw array as typeData, and write correct size.
-    void MarkData(byte *data, uint16_t sz);
+    // Mark raw array as typeData, and write correct size. 
+    // @note 数据包增加两字节长度参与fec运算，取出时要去除这个长度
+    byte* MarkData(byte *data, uint16_t sz);
 
-    // Mark raw array as typeFEC
-    void MarkFEC(byte *data);
+    // Mark raw array as typeFEC, length fecHeaderSize
+    byte* MarkFEC(byte *data);
 private:
     std::vector<fecPacket> rx; // ordered receive queue
     int rxlimit;  // queue empty limit

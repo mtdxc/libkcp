@@ -36,26 +36,26 @@ FEC::Decode(byte *data, size_t sz) {
     data = decode32u(data, &pkt.seqid);
     data = decode16u(data, &pkt.flag);
     pkt.ts = currentMs();
-    pkt.data = std::make_shared<std::vector<byte>>(data, data+sz - fecHeaderSize);
+    pkt.data = std::make_shared<std::vector<byte>>(data, data + sz - fecHeaderSize);
     return pkt;
 }
 
-void
-FEC::MarkData(byte *data, uint16_t sz) {
+byte* FEC::MarkData(byte *data, uint16_t sz) {
     data = encode32u(data,this->next);
     data = encode16u(data,typeData);
-    encode16u(data,static_cast<uint16_t>(sz + 2)); // including size itself
+    data = encode16u(data,static_cast<uint16_t>(sz + 2)); // including size itself
     this->next++;
+    return data;
 }
 
-void
-FEC::MarkFEC(byte *data) {
+byte* FEC::MarkFEC(byte *data) {
     data = encode32u(data,this->next);
-    encode16u(data,typeFEC);
+    data = encode16u(data,typeFEC);
     this->next++;
     if (this->next >= this->paws) { // paws would only occurs in MarkFEC
         this->next = 0;
     }
+    return data;
 }
 
 std::vector<row_type>
@@ -172,7 +172,7 @@ void FEC::Encode(std::vector<row_type> &shards) {
         }
     }
 
-    for ( auto &s : shards) {
+    for (auto &s : shards) {
         if (s == nullptr) {
             s = std::make_shared<std::vector<byte>>(max);
         } else {
